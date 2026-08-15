@@ -29,19 +29,11 @@ jobs:
           fetch-depth: 0
 
       - name: Fetch 3rdparty dependencies
-        # 3rdparty/glslang and 3rdparty/SPIRV-Cross are listed in
-        # .gitmodules but this repo's history doesn't carry real
-        # submodule gitlinks (it was assembled outside of git), so
-        # `actions/checkout` has nothing to check out for them.
-        # Clone them directly instead of relying on submodule checkout.
         run: |
           set -e
           rm -rf 3rdparty/glslang 3rdparty/SPIRV-Cross
           git clone --depth 1 https://github.com/KhronosGroup/glslang.git 3rdparty/glslang
           git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Cross.git 3rdparty/SPIRV-Cross
-          # Note: glslang's update_glslang_sources.py fetches SPIRV-Tools for
-          # its own validation tests. Not needed here since CMakeLists.txt
-          # already sets ENABLE_OPT=OFF and BUILD_EXTERNAL=OFF.
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -103,6 +95,58 @@ jobs:
           echo "so_path=$so_path" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libnw-${{ matrix.abi }}
+          path: ${{ steps.locate.outputs.so_path }}
+          if-no-files-found: error
+
+  package:
+    name: Package release ZIP
+    needs: build
+    runs-on: ubuntu-latest
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all ABI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble jniLibs layout
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p release/jniLibs
+
+          for abi_dir in artifacts/libnw-*; do
+            abi="$(basename "$abi_dir" | sed 's/^libnw-//')"
+
+            mkdir -p "release/jniLibs/$abi"
+
+            cp \
+              "$abi_dir/libnw.so" \
+              "release/jniLibs/$abi/libnw.so"
+          done
+
+          echo "Release contents:"
+          find release -type f -print
+
+      - name: Create release ZIP
+        run: |
+          cd release
+          zip -r "../nw-renderer-${{ github.ref_name }}.zip" jniLibs
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nw-renderer-${{ github.ref_name }}.zip
+          generate_release_notes: true      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: libnw-${{ matrix.abi }}

@@ -1,4 +1,4 @@
-# NW (Render Native Wrapper)
+# NW Native Wrapper
 
 ![Downloads](https://img.shields.io/github/downloads/Endiq-jar/Horizon-Renderer/total?style=for-the-badge&logo=github)
 ![Release](https://img.shields.io/github/v/release/Endiq-jar/Horizon-Renderer?style=for-the-badge)

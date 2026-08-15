@@ -4,8 +4,10 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+
   pull_request:
     branches: [main]
+
   workflow_dispatch:
 
 env:
@@ -20,7 +22,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        abi: [arm64-v8a, armeabi-v7a, x86, x86_64]
+        abi:
+          - arm64-v8a
+          - armeabi-v7a
+          - x86
+          - x86_64
 
     steps:
       - name: Checkout
@@ -31,9 +37,17 @@ jobs:
       - name: Fetch 3rdparty dependencies
         run: |
           set -e
-          rm -rf 3rdparty/glslang 3rdparty/SPIRV-Cross
-          git clone --depth 1 https://github.com/KhronosGroup/glslang.git 3rdparty/glslang
-          git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Cross.git 3rdparty/SPIRV-Cross
+
+          rm -rf 3rdparty/glslang
+          rm -rf 3rdparty/SPIRV-Cross
+
+          git clone --depth 1 \
+            https://github.com/KhronosGroup/glslang.git \
+            3rdparty/glslang
+
+          git clone --depth 1 \
+            https://github.com/KhronosGroup/SPIRV-Cross.git \
+            3rdparty/SPIRV-Cross
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -50,9 +64,14 @@ jobs:
         run: |
           echo "NDK: $ANDROID_NDK_HOME"
 
-          test -f "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
-          test -f "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
-          test -f "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+          test -f \
+            "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+
+          test -f \
+            "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+
+          test -f \
+            "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
 
           "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --version
 
@@ -66,7 +85,8 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -S . -B "build-${{ matrix.abi }}" \
+          cmake -S . \
+            -B "build-${{ matrix.abi }}" \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI="${{ matrix.abi }}" \
             -DANDROID_PLATFORM="${{ env.ANDROID_PLATFORM }}" \
@@ -82,12 +102,20 @@ jobs:
         id: locate
         shell: bash
         run: |
-          so_path="$(find "build-${{ matrix.abi }}" -type f -name 'libnw.so' -print -quit)"
+          so_path="$(
+            find "build-${{ matrix.abi }}" \
+              -type f \
+              -name 'libnw.so' \
+              -print \
+              -quit
+          )"
 
           if [ -z "$so_path" ]; then
             echo "ERROR: libnw.so was not found."
             echo "Build directory:"
-            find "build-${{ matrix.abi }}" -maxdepth 5 -type f | head -200
+            find "build-${{ matrix.abi }}" \
+              -maxdepth 5 \
+              -type f | head -200
             exit 1
           fi
 
@@ -110,95 +138,6 @@ jobs:
 
     permissions:
       contents: write
-
-    steps:
-      - name: Download all ABI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Assemble jniLibs layout
-        shell: bash
-        run: |
-          set -e
-
-          mkdir -p release/jniLibs
-
-          for abi_dir in artifacts/libnw-*; do
-            abi="$(basename "$abi_dir" | sed 's/^libnw-//')"
-
-            mkdir -p "release/jniLibs/$abi"
-
-            cp \
-              "$abi_dir/libnw.so" \
-              "release/jniLibs/$abi/libnw.so"
-          done
-
-          echo "Release contents:"
-          find release -type f -print
-
-      - name: Create release ZIP
-        run: |
-          cd release
-          zip -r "../nw-renderer-${{ github.ref_name }}.zip" jniLibs
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: nw-renderer-${{ github.ref_name }}.zip
-          generate_release_notes: true      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: libnw-${{ matrix.abi }}
-          path: ${{ steps.locate.outputs.so_path }}
-          if-no-files-found: error
-
-  package:
-    name: Package release ZIP
-    needs: build
-    runs-on: ubuntu-latest
-
-    if: startsWith(github.ref, 'refs/tags/v')
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download all ABI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Assemble jniLibs layout
-        shell: bash
-        run: |
-          set -e
-
-          mkdir -p release/jniLibs
-
-          for abi_dir in artifacts/libnw-*; do
-            abi="$(basename "$abi_dir" | sed 's/^libnw-//')"
-
-            mkdir -p "release/jniLibs/$abi"
-
-            cp \
-              "$abi_dir/libnw.so" \
-              "release/jniLibs/$abi/libnw.so"
-          done
-
-          echo "Release contents:"
-          find release -type f -print
-
-      - name: Create release ZIP
-        run: |
-          cd release
-          zip -r "../nw-renderer-${{ github.ref_name }}.zip" jniLibs
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: nw-renderer-${{ github.ref_name }}.zip
-          generate_release_notes: true      contents: write
 
     steps:
       - name: Download all ABI artifacts

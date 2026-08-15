@@ -11,8 +11,8 @@ A high-performance renderer for Minecraft: Java Edition.
 NW is built to provide smoother frame times, better FPS stability, and more efficient rendering while keeping the renderer lightweight and easy to extend.
 
 > [!NOTE]
-> NW is currently based on [NG-GL4ES](https://github.com/BZLZHH/NG-GL4ES).
-> Horizon aims to evolve this foundation into a more optimized, configurable,
+> NW is currently based on [NG-GL4ES](https://github.com/BZLZHH/NG-GL4ES).<br>
+> NW aims to evolve this foundation into a more optimized, configurable,
 > and fork-friendly renderer for Minecraft: Java Edition.
 
 ## ✨ Features

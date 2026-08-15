@@ -1,0 +1,143 @@
+name: Android Auto Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  NDK_VERSION: "28.2.13676358"
+  ANDROID_PLATFORM: "android-24"
+
+jobs:
+  build:
+    name: Build (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86, x86_64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "platform-tools" \
+            "platforms;android-24" \
+            "ndk;${NDK_VERSION}"
+
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Verify NDK
+        run: |
+          echo "NDK: $ANDROID_NDK_HOME"
+
+          test -f "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+          test -f "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+          test -f "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --version
+
+      - name: Cache CMake build directory
+        uses: actions/cache@v4
+        with:
+          path: build-${{ matrix.abi }}
+          key: ${{ runner.os }}-ndk${{ env.NDK_VERSION }}-${{ matrix.abi }}-${{ hashFiles('CMakeLists.txt', 'src/**', 'include/**', '3rdparty/**') }}
+          restore-keys: |
+            ${{ runner.os }}-ndk${{ env.NDK_VERSION }}-${{ matrix.abi }}-
+
+      - name: Configure
+        run: |
+          cmake -S . -B "build-${{ matrix.abi }}" \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI="${{ matrix.abi }}" \
+            -DANDROID_PLATFORM="${{ env.ANDROID_PLATFORM }}" \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build
+        run: |
+          cmake --build "build-${{ matrix.abi }}" \
+            --target nw \
+            --parallel "$(nproc)"
+
+      - name: Locate output
+        id: locate
+        shell: bash
+        run: |
+          so_path="$(find "build-${{ matrix.abi }}" -type f -name 'libnw.so' -print -quit)"
+
+          if [ -z "$so_path" ]; then
+            echo "ERROR: libnw.so was not found."
+            echo "Build directory:"
+            find "build-${{ matrix.abi }}" -maxdepth 5 -type f | head -200
+            exit 1
+          fi
+
+          echo "Found: $so_path"
+          echo "so_path=$so_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libnw-${{ matrix.abi }}
+          path: ${{ steps.locate.outputs.so_path }}
+          if-no-files-found: error
+
+  package:
+    name: Package release ZIP
+    needs: build
+    runs-on: ubuntu-latest
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all ABI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble jniLibs layout
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p release/jniLibs
+
+          for abi_dir in artifacts/libnw-*; do
+            abi="$(basename "$abi_dir" | sed 's/^libnw-//')"
+
+            mkdir -p "release/jniLibs/$abi"
+
+            cp \
+              "$abi_dir/libnw.so" \
+              "release/jniLibs/$abi/libnw.so"
+          done
+
+          echo "Release contents:"
+          find release -type f -print
+
+      - name: Create release ZIP
+        run: |
+          cd release
+          zip -r "../nw-renderer-${{ github.ref_name }}.zip" jniLibs
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nw-renderer-${{ github.ref_name }}.zip
+          generate_release_notes: true
